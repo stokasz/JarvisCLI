@@ -12,7 +12,7 @@ To run the Jarvis script, you need the following:
 ### Installation
 You can install the Jarvis script by running the following command in your terminal:
 
-```curl -sSL https://github.com/stokasz/Jarvis.git -o jarvis.sh && chmod +x jarvis.sh```
+```curl -sSL https://github.com/stokasz/JarvisCLI.git -o jarvis.sh && chmod +x jarvis.sh```
 
 ### Configuration
 Before using Jarvis, you need to set up your OpenAI API key in ```~/.bashrc```. 
