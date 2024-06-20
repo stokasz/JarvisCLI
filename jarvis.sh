@@ -1,11 +1,11 @@
-# Jarvis v0.2 is the interactive assistant CLI for various LLM APIs. Currently it's using gpt-4o LLM model for code generation and answering engineering questions. 
-# It has conversational memory capability. It stores outputs of the conversations as txt files in local /path, and send back the whole conversation through API. 
-# This allow the model to have the understanding of the whole conversation from CLI.
+# Jarvis is a simple shell script that allows you to interact with ChatGPT through the command line. 
+# It provides a convenient way to generate responses based on prompts and engage in conversational sessions with memory capability.
 
 #!/bin/bash
 
 # Function to display help information. 
-function display_help() {
+function display_help() 
+{
     echo "Usage: jarvis [command] [prompt]"
     echo
     echo "Commands:"
@@ -24,18 +24,26 @@ function display_help() {
 
 # API key to ChatGPT.
 if [[ -z "$API_KEY" ]]; then
-    echo "Error: API_KEY environment variable is not set."
+    echo "Error: API_KEY environmental variable isn't set."
     exit 1
-fi 
+fi
+
+# Define the folder where conversation files will be saved.
+CONVERSATION_FOLDER="$HOME/Conversations"
+
+# Create the folder if it doesn't exist.
+mkdir -p "$CONVERSATION_FOLDER"
 
 # We use a system prompt that should enhance assistant's coding capabilities. It was derived from Anthropic's prompt library. 
-function chatgpt() {
+function chatgpt 
+{
     local prompt="$1"
     local response=$(curl -s https://api.openai.com/v1/chat/completions \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $API_KEY" \
         -d '{
             "model": "gpt-4o",
+            "temperature": "0.3",
             "messages": [
                 {
                     "role": "system", 
@@ -48,13 +56,6 @@ function chatgpt() {
             ]
         }'
     )
- 
-    echo "API Response: $response"  # Debugging line
-    
-    if [[ -z "$response" ]]; then
-        echo "Error: No response from the API."
-        return
-    fi
 
     # Extract the relevant information using jq.
     local content=$(echo "$response" | jq -r '.choices[0].message.content // empty')
@@ -67,41 +68,13 @@ function chatgpt() {
         return
     fi
 
-    # Format the parsed message to highlight code blocks.
-    local formatted_content=$(echo "$content" | awk '
-    BEGIN {
-        code_block = 0;
-    }
-    {
-        if ($0 ~ /```/) {
-            code_block = !code_block;
-            if (code_block) {
-                print "\033[1m\033[38;5;214m";
-            } else {
-                print "\033[0m";
-            }
-        } else if (code_block) {
-            print "\033[38;5;214m" $0 "\033[0m";
-        } else {
-            print $0;
-        }
-    }')
-
-    # Print the extracted information.
-    echo -e "\n$formatted_content\n"
-    echo "Prompt Tokens: $prompt_tokens"
-    echo "Completion Tokens: $completion_tokens"
-    
-    # Return the response as a combined string
-    echo "$formatted_content"
-    echo "Prompt Tokens: $prompt_tokens"
-    echo "Completion Tokens: $completion_tokens"
 }
 
-# Function to process the single prompt.
-function process_prompt() {
+# # Function to process the single prompt and append the conversation memory.
+function process_prompt()
+{
     local prompt="$1"
-    echo -e "\nPrompt: $prompt\n"  # Debugging line.
+    echo -e "\nPrompt: $prompt\n"
 
     local conversation_file="$2"
     local conversation_history=()
@@ -113,26 +86,29 @@ function process_prompt() {
             conversation_history+=("$line")
         done < "$conversation_file"
         # Append the current user prompt to the conversation history.
-        conversation_history+=("User: $prompt")z
+        conversation_history+=("User: $prompt")
     else
         conversation_history=("User: $prompt")
     fi
 
-    # Create the JSON payload with the conversation history
+    # Create the JSON payload with the conversation history.
     local json_payload="{\"model\": \"gpt-4o\", \"messages\": ["
     json_payload+="{\"role\": \"system\", \"content\": \"Your task is to answer software engineering questions, provide code snippets, analyze them, and suggest improvements to optimize code performance. Identify areas where the code can be made more efficient, faster, or less resource-intensive. Provide specific suggestions for optimization, along with explanations of how these changes can enhance the code performance.\"},"
 
-    for entry in "${conversation_history[@]}"; do
-        if [[ "$entry" == User:* ]]; then
-            json_payload+="{\"role\": \"user\", \"content\": \"${entry#User: }\"},"
-        elif [[ "$entry" == Assistant:* ]]; then
-            json_payload+="{\"role\": \"assistant\", \"content\": \"${entry#Assistant: }\"},"
-        fi
-    done
+    if [[ ${#conversation_history[@]} -gt 0 ]]; then
+        for entry in "${conversation_history[@]}"; do
+            if [[ "$entry" == User:* ]]; then
+                json_payload+="{\"role\": \"user\", \"content\": \"${entry#User: }\"},"
+            elif [[ "$entry" == Assistant:* ]]; then
+                json_payload+="{\"role\": \"assistant\", \"content\": \"${entry#Assistant: }\"},"
+            fi
+        done
+    else
+        json_payload+="{\"role\": \"user\", \"content\": \"$prompt\"},"
+    fi
 
-    # Remove the trailing comma and close the JSON array and object
+    # Remove the trailing comma and close the JSON array and object.
     json_payload="${json_payload%,}]}"
-    echo "JSON Payload: $json_payload"  # Debugging line
 
     # Call the chatgpt function with the updated JSON payload
     local chatgpt_output=$(curl -s https://api.openai.com/v1/chat/completions \
@@ -140,32 +116,60 @@ function process_prompt() {
         -H "Authorization: Bearer $API_KEY" \
         -d "$json_payload")
 
-    echo "ChatGPT Output: $chatgpt_output"  # Debugging line
-
     # Extract the relevant information using jq.
     local content=$(echo "$chatgpt_output" | jq -r '.choices[0].message.content // empty')
     local prompt_tokens=$(echo "$chatgpt_output" | jq -r '.usage.prompt_tokens // empty')
     local completion_tokens=$(echo "$chatgpt_output" | jq -r '.usage.completion_tokens // empty')
-
     # Check if the content is null or empty.
     if [[ -z "$content" ]]; then
         echo "Error: No content in the response."
         return
     fi
 
-    # Append the assistant's response to the conversation history.
-    conversation_history+=("Assistant: $content")
+    # Append the assistant's response to the conversation history only if conversation_file is provided.
+    if [[ -n "$conversation_file" ]]; then
+        conversation_history+=("Assistant: $content")
+        # Write the updated conversation history back to the conversation file.
+        printf "%s\n" "${conversation_history[@]}" > "$conversation_file"
+    fi
 
-    # Write the updated conversation history back to the conversation file.
-    printf "%s\n" "${conversation_history[@]}" > "$conversation_file"
+    # Highlight code snippets using awk
+    local formatted_content=$(echo "$content" | awk '
+        BEGIN {
+        code_block = 0;
+        bold = 0;
+    }
+    {
+        if ($0 ~ /```/) {
+            code_block = !code_block;
+            if (code_block) {
+                print "\033[1m\033[38;5;214m";
+            } else {
+                print "\033[0m";
+            }
+        } else if (!code_block && $0 ~ /\*\*/) {
+            gsub(/\*\*/, "");
+            bold = !bold;
+            if (bold) {
+                print "\033[1m" $0;
+            } else {
+                print "\033[0m" $0;
+            }
+        } else if (code_block) {
+            print "\033[38;5;214m" $0 "\033[0m";
+        } else {
+            print $0;
+        }
+    }')
 
-    echo -e "$content"
+    echo -e "$formatted_content"
     echo -e "\nPrompt Tokens: $prompt_tokens"
     echo "Completion Tokens: $completion_tokens"
-    echo  # Newline echo.
+    echo # Newline.
 }
 
-function start_session() {
+function start_session()
+{
     local conversation_file
     if [[ "$1" == "-"* ]]; then
         conversation_file="${1:1}"
@@ -174,13 +178,14 @@ function start_session() {
         conversation_file="conversation_$(date +%Y%m%d_%H%M%S).txt"
     fi
 
+    conversation_file="$CONVERSATION_FOLDER/$conversation_file"
+    
     echo -e "\nConversation file: $conversation_file\n"  # Debugging line.
     echo -e "\nI now possess the memory of our conversation, master. Say 'jarvis stop' if you wish me to stop.\n"
 
     local conversation_history=()
-
-    # Load the conversation history from the file if it exists.
-    if [[ -f "$conversation_file" ]]; then
+        # Load the conversation history from the file if it exists.
+        if [[ -f "$conversation_file" ]]; then
         while IFS= read -r line; do
             conversation_history+=("$line")
         done < "$conversation_file"
@@ -189,7 +194,6 @@ function start_session() {
     while true; do
         # Read user input with support for arrow key navigation.
         read -e -p "User: " user_input
-
         # Add the user input to the conversation history.
         conversation_history+=("User: $user_input")
 
