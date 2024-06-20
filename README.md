@@ -1,4 +1,4 @@
-# Jarvis v0.2
+# JarvisCLI v0.2
 Jarvis is a simple shell script that allows you to interact with ChatGPT through the command line. It provides a convenient way to generate responses based on prompts and engage in conversational sessions with memory capability.
 
 ### Requirements
