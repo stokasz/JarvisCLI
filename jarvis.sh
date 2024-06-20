@@ -1,7 +1,7 @@
+#!/bin/bash
+
 # Jarvis is a simple shell script that allows you to interact with ChatGPT through the command line. 
 # It provides a convenient way to generate responses based on prompts and engage in conversational sessions with memory capability.
-
-#!/bin/bash
 
 # Function to display help information. 
 function display_help() 
